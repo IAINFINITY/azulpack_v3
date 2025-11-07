@@ -1,14 +1,13 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
-import { useNavigate } from 'react-router-dom';
 
 interface AuthContextType {
   user: User | null;
   session: Session | null;
   loading: boolean;
   isAdmin: boolean;
-  signIn: (email: string, password: string) => Promise<{ error: any }>;
+  signIn: (email: string, password: string) => Promise<{ error: any; data?: any }>;
   signOut: () => Promise<void>;
 }
 
@@ -19,7 +18,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
-  const navigate = useNavigate();
+  // Não navegamos dentro do provedor para evitar navegações/reloads inesperados
+  // (por ex. quando o Supabase emite refresh/token events ao alternar abas).
+  // A navegação deve ser feita pelo componente que chama signIn/signOut.
 
   useEffect(() => {
     // O estado `loading` começa como `true`.
@@ -69,26 +70,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signIn = async (email: string, password: string) => {
     setLoading(true); // Ativa o loading antes de tentar o login
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
 
-    // O onAuthStateChange vai lidar com a atualização do estado e o fim do loading.
-    if (!error) {
-      navigate('/');
-    } else {
+    // Não navegamos aqui. O onAuthStateChange atualiza o estado.
+    // O componente que chamar signIn pode fazer a navegação após receber sucesso.
+    if (error) {
       setLoading(false); // Se o login falhar, para o loading.
     }
 
-    return { error };
+    return { error, data };
   };
 
   const signOut = async () => {
     setLoading(true);
     await supabase.auth.signOut();
-    // O onAuthStateChange cuidará de limpar o estado e finalizar o loading.
-    navigate('/auth');
+    // Não navegamos aqui para evitar reloads inesperados. Quem chamar signOut
+    // deve tratar a navegação (ex: ir para /auth) após receber confirmação.
   };
 
   return (
@@ -100,7 +100,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (context === undefined) {
+  if context === undefined) {
     throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
