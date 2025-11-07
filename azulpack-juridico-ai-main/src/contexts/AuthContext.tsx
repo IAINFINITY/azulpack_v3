@@ -22,40 +22,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Função para verificar a sessão inicial e configurar o estado.
-    const initializeSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      setSession(session);
-      setUser(session?.user ?? null);
-
-      if (session?.user) {
-        await checkUserRole(session.user.id);
-      }
-      // Finaliza o carregamento inicial apenas após a verificação completa.
-      setLoading(false);
-    };
-
-    initializeSession();
+    // Inicia o carregamento e busca a sessão inicial.
+    // O estado de loading só será `false` após a verificação completa.
+    checkSession();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         setSession(session);
         setUser(session?.user ?? null);
 
-        if (event === 'SIGNED_IN' && session?.user) {
+        if (event === 'SIGNED_IN' && session?.user) { // Usuário acabou de logar
           await checkUserRole(session.user.id);
-        } else {
+        } else if (event === 'SIGNED_OUT') { // Usuário acabou de deslogar
+          setIsAdmin(false);
           setLoading(false);
         }
+        // Para outros eventos como TOKEN_REFRESHED, não fazemos nada para evitar loops.
       }
     );
 
     return () => subscription.unsubscribe();
   }, []);
 
-  const checkUserRole = async (userId: string) => {
-    try {
-      const { data, error } = await supabase
+  const checkUserRole = async (userId: string) => {    try {      const { data } = await supabase
         .from('user_roles')
         .select('role')
         .eq('user_id', userId)
@@ -71,26 +60,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const checkSession = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    setSession(session);
+    setUser(session?.user ?? null);
+
+    if (session?.user) {
+      // Se há um usuário, verifica o papel antes de terminar o loading.
+      await checkUserRole(session.user.id);
+    } else {
+      // Se não há usuário, o loading pode terminar.
+      setLoading(false);
+    }
+  };
+
   const signIn = async (email: string, password: string) => {
     setLoading(true); // Ativa o loading antes de tentar o login
-    const { data, error } = await supabase.auth.signInWithPassword({
+    const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
 
-    if (data.user) {
-      await checkUserRole(data.user.id);
+    // O onAuthStateChange vai lidar com a atualização do estado e o fim do loading.
+    if (!error) {
       navigate('/');
+    } else {
+      setLoading(false); // Se o login falhar, para o loading.
     }
-    setLoading(false);
 
     return { error };
   };
 
   const signOut = async () => {
-    setLoading(true); // Ativa o loading antes de deslogar
+    setLoading(true);
     await supabase.auth.signOut();
-    setIsAdmin(false);
+    // O onAuthStateChange vai lidar com a atualização do estado e o fim do loading.
     navigate('/auth');
   };
 
