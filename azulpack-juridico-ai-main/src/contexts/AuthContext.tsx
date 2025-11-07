@@ -24,20 +24,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
+        // Atualiza a sessão e o usuário em qualquer mudança de estado de autenticação.
         setSession(session);
         setUser(session?.user ?? null);
 
-        if (session?.user) {
-          // Evita flicker ao voltar para a aba: não ativar loading em refresh de token
-          if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
-            setLoading(true);
-            setTimeout(() => {
-              checkUserRole(session.user.id);
-            }, 0);
-          } else {
-            // Em eventos como TOKEN_REFRESHED / INITIAL_SESSION mantemos a UI estável
-            setLoading(false);
-          }
+        // Se o usuário fez login ou se deslogou, o estado de carregamento é ativado para transição.
+        // Para eventos de restauração de sessão (TOKEN_REFRESHED, INITIAL_SESSION),
+        // o carregamento é mantido como `false` para evitar redirecionamentos indesejados.
+        if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
+          setLoading(true);
         } else {
           setIsAdmin(false);
           setLoading(false);
@@ -45,15 +40,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     );
 
+    // Verifica a sessão inicial ao carregar a aplicação.
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
-        setLoading(true);
+        // Ao obter a sessão inicial, verifica o papel do usuário sem ativar o loading global,
+        // para evitar que o ProtectedRoute redirecione o usuário indevidamente.
         checkUserRole(session.user.id);
-      } else {
-        setLoading(false);
       }
+      // O estado de carregamento inicial é finalizado aqui, após a primeira verificação.
+      setLoading(false);
     });
 
     return () => subscription.unsubscribe();
@@ -78,6 +75,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signIn = async (email: string, password: string) => {
+    setLoading(true); // Ativa o loading antes de tentar o login
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
@@ -85,6 +83,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     if (!error) {
       // A navegação será gerenciada pelo ProtectedRoute
+      // O onAuthStateChange cuidará de setLoading(false) após checkUserRole
       navigate('/');
     }
 
@@ -92,6 +91,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signOut = async () => {
+    setLoading(true); // Ativa o loading antes de deslogar
     await supabase.auth.signOut();
     navigate('/auth');
   };
