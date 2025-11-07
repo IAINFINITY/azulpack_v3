@@ -22,36 +22,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const navigate = useNavigate();
 
   useEffect(() => {
+    // Função para verificar a sessão inicial e configurar o estado.
+    const initializeSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      setSession(session);
+      setUser(session?.user ?? null);
+
+      if (session?.user) {
+        await checkUserRole(session.user.id);
+      }
+      // Finaliza o carregamento inicial apenas após a verificação completa.
+      setLoading(false);
+    };
+
+    initializeSession();
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        // Atualiza a sessão e o usuário em qualquer mudança de estado de autenticação.
+      async (event, session) => {
         setSession(session);
         setUser(session?.user ?? null);
 
-        // Se o usuário fez login ou se deslogou, o estado de carregamento é ativado para transição.
-        // Para eventos de restauração de sessão (TOKEN_REFRESHED, INITIAL_SESSION),
-        // o carregamento é mantido como `false` para evitar redirecionamentos indesejados.
-        if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
-          setLoading(true);
+        if (event === 'SIGNED_IN' && session?.user) {
+          await checkUserRole(session.user.id);
         } else {
-          setIsAdmin(false);
           setLoading(false);
         }
       }
     );
-
-    // Verifica a sessão inicial ao carregar a aplicação.
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        // Ao obter a sessão inicial, verifica o papel do usuário sem ativar o loading global,
-        // para evitar que o ProtectedRoute redirecione o usuário indevidamente.
-        checkUserRole(session.user.id);
-      }
-      // O estado de carregamento inicial é finalizado aqui, após a primeira verificação.
-      setLoading(false);
-    });
 
     return () => subscription.unsubscribe();
   }, []);
@@ -65,10 +62,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .eq('role', 'admin')
         .single();
 
-      setIsAdmin(!!data && !error);
+      setIsAdmin(!!data);
     } catch (error) {
       console.error('Erro ao verificar papel do usuário', error);
-      // Mantém o valor atual de isAdmin em caso de erro para evitar redirecionos indevidos
+      setIsAdmin(false);
     } finally {
       setLoading(false);
     }
@@ -76,16 +73,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signIn = async (email: string, password: string) => {
     setLoading(true); // Ativa o loading antes de tentar o login
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
 
-    if (!error) {
-      // A navegação será gerenciada pelo ProtectedRoute
-      // O onAuthStateChange cuidará de setLoading(false) após checkUserRole
+    if (data.user) {
+      await checkUserRole(data.user.id);
       navigate('/');
     }
+    setLoading(false);
 
     return { error };
   };
@@ -93,6 +90,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signOut = async () => {
     setLoading(true); // Ativa o loading antes de deslogar
     await supabase.auth.signOut();
+    setIsAdmin(false);
     navigate('/auth');
   };
 
