@@ -22,29 +22,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Inicia o carregamento e busca a sessão inicial.
-    // O estado de loading só será `false` após a verificação completa.
-    checkSession();
+    // O estado `loading` começa como `true`.
+    // O listener onAuthStateChange será a única fonte de verdade para o estado de autenticação.
+    // Ele é chamado imediatamente na inicialização com a sessão atual (se houver)
+    // e sempre que o estado de autenticação mudar.
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         setSession(session);
         setUser(session?.user ?? null);
 
-        if (event === 'SIGNED_IN' && session?.user) { // Usuário acabou de logar
+        if (session?.user) {
+          // Se há uma sessão (seja no carregamento inicial, login ou refresh),
+          // verificamos o papel do usuário. A função checkUserRole
+          // será responsável por finalizar o loading.
           await checkUserRole(session.user.id);
-        } else if (event === 'SIGNED_OUT') { // Usuário acabou de deslogar
+        } else {
+          // Se não há sessão (usuário deslogado ou sessão expirada),
+          // o usuário não é admin e o carregamento pode ser finalizado.
           setIsAdmin(false);
           setLoading(false);
         }
-        // Para outros eventos como TOKEN_REFRESHED, não fazemos nada para evitar loops.
       }
     );
 
     return () => subscription.unsubscribe();
   }, []);
 
-  const checkUserRole = async (userId: string) => {    try {      const { data } = await supabase
+  const checkUserRole = async (userId: string) => {
+    try {
+      const { data } = await supabase
         .from('user_roles')
         .select('role')
         .eq('user_id', userId)
@@ -56,20 +63,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.error('Erro ao verificar papel do usuário', error);
       setIsAdmin(false);
     } finally {
-      setLoading(false);
-    }
-  };
-
-  const checkSession = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    setSession(session);
-    setUser(session?.user ?? null);
-
-    if (session?.user) {
-      // Se há um usuário, verifica o papel antes de terminar o loading.
-      await checkUserRole(session.user.id);
-    } else {
-      // Se não há usuário, o loading pode terminar.
       setLoading(false);
     }
   };
@@ -94,7 +87,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signOut = async () => {
     setLoading(true);
     await supabase.auth.signOut();
-    // O onAuthStateChange vai lidar com a atualização do estado e o fim do loading.
+    // O onAuthStateChange cuidará de limpar o estado e finalizar o loading.
     navigate('/auth');
   };
 
